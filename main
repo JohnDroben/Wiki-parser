@@ -1,0 +1,133 @@
+from selenium import webdriver
+from selenium.webdriver.common.by import By
+from selenium.webdriver.common.keys import Keys
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
+import time
+
+def get_paragraphs(driver):
+    """Получить параграфы основной статьи"""
+    return [p.text for p in driver.find_elements(
+        By.CSS_SELECTOR, 
+        "#mw-content-text > div.mw-parser-output > p:not(.mw-empty-elt)"
+    ) if p.text.strip()]
+
+def get_valid_links(driver):
+    """Получить только релевантные ссылки статьи"""
+    try:
+        main_content = WebDriverWait(driver, 10).until(
+            EC.presence_of_element_located((By.ID, "mw-content-text"))
+        )
+        return [
+            link for link in main_content.find_elements(By.CSS_SELECTOR, "a[href^='/wiki/']")
+            if link.is_displayed() 
+            and link.text.strip()
+            and not link.get_attribute("class")
+            and "Служебная" not in link.get_attribute("href")
+        ]
+    except:
+        return []
+
+def handle_search_results(driver):
+    """Обработка страницы с результатами поиска"""
+    try:
+        WebDriverWait(driver, 5).until(
+            EC.presence_of_element_located((By.CLASS_NAME, "mw-search-results"))
+        )
+        first_result = driver.find_element(
+            By.CSS_SELECTOR, 
+            "ul.mw-search-results > li:first-child a"
+        )
+        first_result.click()
+        return True
+    except:
+        return False
+
+def wikipedia_parser():
+    driver = webdriver.Chrome()
+    wait = WebDriverWait(driver, 10)
+    driver.get("https://ru.wikipedia.org")
+    
+    try:
+        search_term = input("Введите поисковый запрос: ").strip()
+        
+        # Поиск с главной страницы
+        search_box = wait.until(EC.element_to_be_clickable((By.ID, "searchInput")))
+        search_box.clear()
+        search_box.send_keys(search_term)
+        search_box.send_keys(Keys.RETURN)
+        
+        # Если попали на страницу результатов
+        if "search=" in driver.current_url:
+            if not handle_search_results(driver):
+                print("Статья не найдена!")
+                return
+        
+        while True:
+            print("\n" + "="*50)
+            print(f"Текущая статья: {driver.title.replace(' — Википедия', '')}")
+            
+            # Проверяем, что это не служебная страница
+            if "Служебная:" in driver.current_url:
+                print("Это служебная страница, поиск невозможен")
+                break
+                
+            print("1. Читать статью")
+            print("2. Перейти по ссылке")
+            print("3. Выход")
+            
+            choice = input("Выберите действие: ").strip()
+            
+            if choice == '1':
+                paragraphs = get_paragraphs(driver)
+                if paragraphs:
+                    show_paragraphs(paragraphs)
+                else:
+                    print("Текст статьи отсутствует")
+                    
+            elif choice == '2':
+                links = get_valid_links(driver)
+                if links:
+                    print("\nДоступные ссылки:")
+                    for i, link in enumerate(links[:15], 1):
+                        print(f"{i}. {link.text}")
+                        
+                    try:
+                        choice = int(input("\nВыберите номер: ")) - 1
+                        if 0 <= choice < len(links):
+                            driver.execute_script("arguments[0].scrollIntoView();", links[choice])
+                            links[choice].click()
+                            wait.until(EC.presence_of_element_located((By.ID, "mw-content-text")))
+                        else:
+                            print("Неверный номер!")
+                    except:
+                        print("Ошибка ввода!")
+                else:
+                    print("Нет доступных ссылок")
+                    
+            elif choice == '3':
+                print("Выход...")
+                break
+                
+            else:
+                print("Неверный ввод!")
+                
+    except Exception as e:
+        print(f"Ошибка: {str(e)}")
+    finally:
+        driver.quit()
+
+def show_paragraphs(paragraphs):
+    """Улучшенный вывод текста"""
+    current = 0
+    while current < len(paragraphs):
+        for i in range(current, min(current+3, len(paragraphs))):
+            print(f"\n{paragraphs[i]}\n")
+            print("-"*50)
+        current += 3
+        if current < len(paragraphs):
+            if input("Далее? (д/н): ").lower() != 'д':
+                break
+
+if __name__ == "__main__":
+    wikipedia_parser()
